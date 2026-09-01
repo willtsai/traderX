@@ -2,10 +2,33 @@ extension radius
 
 param environment string
 
+@secure()
+param registryPassword string
+
+@secure()
+param registryUsername string
+
 resource traderXApp 'Radius.Core/applications@2025-08-01-preview' = {
   name: 'trader-x'
   properties: {
     environment: environment
+  }
+}
+
+resource registryCreds 'Radius.Security/secrets@2025-08-01-preview' = {
+  name: 'radius-ghcr-registry-creds'
+  properties: {
+    environment: environment
+    application: traderXApp.id
+    codeReference: '.github/workflows/build-and-publish.yml#L1'
+    data: {
+      password: {
+        value: registryPassword
+      }
+      username: {
+        value: registryUsername
+      }
+    }
   }
 }
 
@@ -15,15 +38,18 @@ resource accountServiceImage 'Radius.Compute/containerImages@2025-08-01-preview'
     environment: environment
     application: traderXApp.id
     codeReference: 'account-service/Dockerfile.compose'
-    tag: '8e9ef3db767a'
+    tag: '7dc36ae6bd5c'
     build: {
       dockerfile: 'Dockerfile.compose'
       platforms: [
         'linux/amd64'
       ]
-      source: 'git::https://github.com/willtsai/traderX.git//account-service?ref=8e9ef3db767a506b8eb583c13229bf0e6aaa1ac0'
+      source: 'git::https://github.com/willtsai/traderX.git//account-service?ref=7dc36ae6bd5c3f63e11b76bf406dac9908c2d42b'
     }
   }
+  dependsOn: [
+    registryCreds
+  ]
 }
 
 resource databaseImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
@@ -32,15 +58,18 @@ resource databaseImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
     environment: environment
     application: traderXApp.id
     codeReference: 'database/Dockerfile.compose'
-    tag: '8e9ef3db767a'
+    tag: '7dc36ae6bd5c'
     build: {
       dockerfile: 'Dockerfile.compose'
       platforms: [
         'linux/amd64'
       ]
-      source: 'git::https://github.com/willtsai/traderX.git//database?ref=8e9ef3db767a506b8eb583c13229bf0e6aaa1ac0'
+      source: 'git::https://github.com/willtsai/traderX.git//database?ref=7dc36ae6bd5c3f63e11b76bf406dac9908c2d42b'
     }
   }
+  dependsOn: [
+    registryCreds
+  ]
 }
 
 resource ingressImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
@@ -49,15 +78,18 @@ resource ingressImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
     environment: environment
     application: traderXApp.id
     codeReference: 'ingress/Dockerfile.compose'
-    tag: '8e9ef3db767a'
+    tag: '7dc36ae6bd5c'
     build: {
       dockerfile: 'Dockerfile.compose'
       platforms: [
         'linux/amd64'
       ]
-      source: 'git::https://github.com/willtsai/traderX.git//ingress?ref=8e9ef3db767a506b8eb583c13229bf0e6aaa1ac0'
+      source: 'git::https://github.com/willtsai/traderX.git//ingress?ref=7dc36ae6bd5c3f63e11b76bf406dac9908c2d42b'
     }
   }
+  dependsOn: [
+    registryCreds
+  ]
 }
 
 resource peopleServiceImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
@@ -66,15 +98,18 @@ resource peopleServiceImage 'Radius.Compute/containerImages@2025-08-01-preview' 
     environment: environment
     application: traderXApp.id
     codeReference: 'people-service/Dockerfile.compose'
-    tag: '8e9ef3db767a'
+    tag: '7dc36ae6bd5c'
     build: {
       dockerfile: 'Dockerfile.compose'
       platforms: [
         'linux/amd64'
       ]
-      source: 'git::https://github.com/willtsai/traderX.git//people-service?ref=8e9ef3db767a506b8eb583c13229bf0e6aaa1ac0'
+      source: 'git::https://github.com/willtsai/traderX.git//people-service?ref=7dc36ae6bd5c3f63e11b76bf406dac9908c2d42b'
     }
   }
+  dependsOn: [
+    registryCreds
+  ]
 }
 
 resource positionServiceImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
@@ -83,15 +118,18 @@ resource positionServiceImage 'Radius.Compute/containerImages@2025-08-01-preview
     environment: environment
     application: traderXApp.id
     codeReference: 'position-service/Dockerfile.compose'
-    tag: '8e9ef3db767a'
+    tag: '7dc36ae6bd5c'
     build: {
       dockerfile: 'Dockerfile.compose'
       platforms: [
         'linux/amd64'
       ]
-      source: 'git::https://github.com/willtsai/traderX.git//position-service?ref=8e9ef3db767a506b8eb583c13229bf0e6aaa1ac0'
+      source: 'git::https://github.com/willtsai/traderX.git//position-service?ref=7dc36ae6bd5c3f63e11b76bf406dac9908c2d42b'
     }
   }
+  dependsOn: [
+    registryCreds
+  ]
 }
 
 resource referenceDataImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
@@ -100,15 +138,18 @@ resource referenceDataImage 'Radius.Compute/containerImages@2025-08-01-preview' 
     environment: environment
     application: traderXApp.id
     codeReference: 'reference-data/Dockerfile.compose'
-    tag: '8e9ef3db767a'
+    tag: '7dc36ae6bd5c'
     build: {
       dockerfile: 'Dockerfile.compose'
       platforms: [
         'linux/amd64'
       ]
-      source: 'git::https://github.com/willtsai/traderX.git//reference-data?ref=8e9ef3db767a506b8eb583c13229bf0e6aaa1ac0'
+      source: 'git::https://github.com/willtsai/traderX.git//reference-data?ref=7dc36ae6bd5c3f63e11b76bf406dac9908c2d42b'
     }
   }
+  dependsOn: [
+    registryCreds
+  ]
 }
 
 resource tradeFeedImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
@@ -117,15 +158,18 @@ resource tradeFeedImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
     environment: environment
     application: traderXApp.id
     codeReference: 'trade-feed/Dockerfile.compose'
-    tag: '8e9ef3db767a'
+    tag: '7dc36ae6bd5c'
     build: {
       dockerfile: 'Dockerfile.compose'
       platforms: [
         'linux/amd64'
       ]
-      source: 'git::https://github.com/willtsai/traderX.git//trade-feed?ref=8e9ef3db767a506b8eb583c13229bf0e6aaa1ac0'
+      source: 'git::https://github.com/willtsai/traderX.git//trade-feed?ref=7dc36ae6bd5c3f63e11b76bf406dac9908c2d42b'
     }
   }
+  dependsOn: [
+    registryCreds
+  ]
 }
 
 resource tradeProcessorImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
@@ -134,15 +178,18 @@ resource tradeProcessorImage 'Radius.Compute/containerImages@2025-08-01-preview'
     environment: environment
     application: traderXApp.id
     codeReference: 'trade-processor/Dockerfile.compose'
-    tag: '8e9ef3db767a'
+    tag: '7dc36ae6bd5c'
     build: {
       dockerfile: 'Dockerfile.compose'
       platforms: [
         'linux/amd64'
       ]
-      source: 'git::https://github.com/willtsai/traderX.git//trade-processor?ref=8e9ef3db767a506b8eb583c13229bf0e6aaa1ac0'
+      source: 'git::https://github.com/willtsai/traderX.git//trade-processor?ref=7dc36ae6bd5c3f63e11b76bf406dac9908c2d42b'
     }
   }
+  dependsOn: [
+    registryCreds
+  ]
 }
 
 resource tradeServiceImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
@@ -151,15 +198,18 @@ resource tradeServiceImage 'Radius.Compute/containerImages@2025-08-01-preview' =
     environment: environment
     application: traderXApp.id
     codeReference: 'trade-service/Dockerfile.compose'
-    tag: '8e9ef3db767a'
+    tag: '7dc36ae6bd5c'
     build: {
       dockerfile: 'Dockerfile.compose'
       platforms: [
         'linux/amd64'
       ]
-      source: 'git::https://github.com/willtsai/traderX.git//trade-service?ref=8e9ef3db767a506b8eb583c13229bf0e6aaa1ac0'
+      source: 'git::https://github.com/willtsai/traderX.git//trade-service?ref=7dc36ae6bd5c3f63e11b76bf406dac9908c2d42b'
     }
   }
+  dependsOn: [
+    registryCreds
+  ]
 }
 
 resource webFrontEndAngularImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
@@ -168,15 +218,18 @@ resource webFrontEndAngularImage 'Radius.Compute/containerImages@2025-08-01-prev
     environment: environment
     application: traderXApp.id
     codeReference: 'web-front-end/angular/Dockerfile.compose'
-    tag: '8e9ef3db767a'
+    tag: '7dc36ae6bd5c'
     build: {
       dockerfile: 'Dockerfile.compose'
       platforms: [
         'linux/amd64'
       ]
-      source: 'git::https://github.com/willtsai/traderX.git//web-front-end/angular?ref=8e9ef3db767a506b8eb583c13229bf0e6aaa1ac0'
+      source: 'git::https://github.com/willtsai/traderX.git//web-front-end/angular?ref=7dc36ae6bd5c3f63e11b76bf406dac9908c2d42b'
     }
   }
+  dependsOn: [
+    registryCreds
+  ]
 }
 
 resource accountServiceContainer 'Radius.Compute/containers@2025-08-01-preview' = {
