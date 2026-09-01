@@ -6,7 +6,7 @@
 # continue when applications are still deployed to the environment, deletes the
 # environment (running any recipe deletes against the target cluster), then
 # persists the updated state again and tears the control plane down. The
-# provider-agnostic phases are shared composite actions in radius-project/radius;
+# provider-agnostic phases are shared composite actions in radius-project/ai-extensions;
 # only the Azure-specific steps and the ai-extensions-owned "no deployed
 # applications" guard live here.
 #
@@ -45,6 +45,13 @@ jobs:
   delete:
     name: Delete with Radius
     runs-on: ubuntu-24.04
+    # Cap the job near the extension's own 30-minute poll deadline
+    # (server.ts monitorDeleteRun). GitHub's default job timeout is 360 minutes,
+    # so without this a run wedged on an AKS connect or `rollout status` step
+    # would keep running for hours after the extension has already reported it
+    # could not confirm the deletion — long enough for a stale run to land
+    # `rad env delete` underneath a user's retry.
+    timeout-minutes: 30
     environment: ${{ inputs.environment }}
     # OCI-backed Radius control-plane state, provisioned per-environment by the
     # deploy tooling (canvas extension) as environment variables. Set at job
@@ -91,23 +98,32 @@ jobs:
 
       - name: Connect to AKS cluster
         if: ${{ vars.AZURE_AKS_CLUSTER_NAME != '' }}
+        env:
+          # Pass environment-controlled values through the environment rather
+          # than interpolating them into the shell source, so a crafted value
+          # cannot execute commands in this OIDC + write job.
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_AKS_CLUSTER_NAME: ${{ vars.AZURE_AKS_CLUSTER_NAME }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
         run: |
           az aks get-credentials \
-            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-            --name "${{ vars.AZURE_AKS_CLUSTER_NAME }}" \
-            --subscription "${{ vars.AZURE_SUBSCRIPTION_ID }}" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_AKS_CLUSTER_NAME" \
+            --subscription "$AZURE_SUBSCRIPTION_ID" \
             --file "$RADIUS_TARGET_KUBECONFIG"
 
       - name: Set up control plane
-        uses: radius-project/radius/.github/extension/actions/setup-control-plane@main
+        uses: radius-project/ai-extensions/.github/extension/actions/setup-control-plane@b3968995401ac8e903af682704b844762401f214
 
       - name: Project cloud OIDC tokens into Radius pods
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
         run: |
           # Mint GitHub OIDC tokens and mount them where Radius expects them, so the
           # recipe deletes triggered by the delete can authenticate to Azure exactly
           # as the deploy workflow does. GitHub Actions is already a trusted OIDC
           # issuer for Azure via the AAD federated credential.
-          if [ -n "${{ vars.AZURE_CLIENT_ID }}" ]; then
+          if [ -n "$AZURE_CLIENT_ID" ]; then
             echo "Projecting Azure OIDC token..."
             AZ_TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
               "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r '.value')
@@ -156,19 +172,23 @@ jobs:
           echo "External deployment target configured."
 
       - name: Restore Radius state
-        uses: radius-project/radius/.github/extension/actions/restore-state@main
+        id: restore-state
+        uses: radius-project/ai-extensions/.github/extension/actions/restore-state@b3968995401ac8e903af682704b844762401f214
         with:
           namespace: ${{ vars.KUBERNETES_NAMESPACE || 'default' }}
 
       - name: Register cloud credentials with Radius
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
         run: |
           # Register the Azure identity so the recipe deletes can authenticate,
           # reading the projected OIDC token at runtime.
-          if [ -n "${{ vars.AZURE_CLIENT_ID }}" ]; then
+          if [ -n "$AZURE_CLIENT_ID" ]; then
             echo "Registering Azure workload identity credential..."
             rad credential register azure wi \
-              --client-id "${{ vars.AZURE_CLIENT_ID }}" \
-              --tenant-id "${{ vars.AZURE_TENANT_ID }}"
+              --client-id "$AZURE_CLIENT_ID" \
+              --tenant-id "$AZURE_TENANT_ID"
           fi
           echo "✅ Cloud credentials registered with Radius."
 
@@ -183,24 +203,38 @@ jobs:
       - name: List applications in the environment
         id: list_apps
         if: ${{ inputs.resource_type == 'environment' }}
+        env:
+          # Pass the untrusted resource name through the environment rather than
+          # interpolating it into the shell source, so a crafted name cannot
+          # execute commands in this privileged (OIDC + write) job.
+          RESOURCE_NAME: ${{ inputs.name }}
         run: |
           set -euo pipefail
-          echo "Listing applications deployed to environment '${{ inputs.name }}'..."
+          echo "Listing applications deployed to environment '${RESOURCE_NAME}'..."
           if ! apps_json="$(rad application list --output json)"; then
-            echo "::error::Could not list applications in environment '${{ inputs.name }}'. Refusing to delete the environment so a live application is not orphaned; check Radius connectivity and retry."
+            echo "::error::Could not list applications in environment '${RESOURCE_NAME}'. Refusing to delete the environment so a live application is not orphaned; check Radius connectivity and retry."
             exit 1
           fi
           if ! printf '%s' "$apps_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
-            echo "::error::'rad application list' did not return a JSON array for environment '${{ inputs.name }}'. Refusing to delete the environment; check Radius connectivity and retry."
+            echo "::error::'rad application list' did not return a JSON array for environment '${RESOURCE_NAME}'. Refusing to delete the environment; check Radius connectivity and retry."
             exit 1
           fi
           app_count="$(printf '%s' "$apps_json" | jq 'length')"
           app_names="$(printf '%s' "$apps_json" | jq -r '.[].name' | paste -sd ', ' -)"
+          # app_count is a plain integer, but an application name could in
+          # principle contain a newline; a bare `app_names=${app_names}` line
+          # would then split the output file and make the guard below read an
+          # empty APP_COUNT and delete a still-populated environment. Emit
+          # app_names through a randomly-delimited heredoc so any newline is
+          # preserved instead of corrupting $GITHUB_OUTPUT.
+          delimiter="ghadelim_$(openssl rand -hex 16 2>/dev/null || date +%s%N)"
           {
             echo "app_count=${app_count}"
-            echo "app_names=${app_names}"
+            echo "app_names<<${delimiter}"
+            echo "${app_names}"
+            echo "${delimiter}"
           } >> "$GITHUB_OUTPUT"
-          echo "Found ${app_count} application(s) in environment '${{ inputs.name }}'."
+          echo "Found ${app_count} application(s) in environment '${RESOURCE_NAME}'."
 
       # The restored state is per-environment, so any application listed above is
       # deployed to the environment being deleted. Deleting the environment out
@@ -213,21 +247,30 @@ jobs:
       # packages/core/src/workflows/delete.ts.
       - name: Guard - environment has no deployed applications
         if: ${{ inputs.resource_type == 'environment' }}
+        env:
+          # Untrusted values (the resource name and the app names discovered on
+          # the cluster) are passed through the environment and quoted, never
+          # interpolated into the shell source.
+          RESOURCE_NAME: ${{ inputs.name }}
+          APP_COUNT: ${{ steps.list_apps.outputs.app_count }}
+          APP_NAMES: ${{ steps.list_apps.outputs.app_names }}
         run: |
           set -euo pipefail
-          app_count="${{ steps.list_apps.outputs.app_count }}"
-          if [ "${app_count:-0}" -gt 0 ]; then
-            echo "::error::Environment '${{ inputs.name }}' still has ${app_count} deployed application(s): ${{ steps.list_apps.outputs.app_names }}. Delete the application(s) first, then delete the environment."
+          app_count="${APP_COUNT:-0}"
+          if [ "${app_count}" -gt 0 ]; then
+            echo "::error::Environment '${RESOURCE_NAME}' still has ${app_count} deployed application(s): ${APP_NAMES}. Delete the application(s) first, then delete the environment."
             exit 1
           fi
-          echo "✅ No applications are deployed to environment '${{ inputs.name }}'; safe to delete."
+          echo "✅ No applications are deployed to environment '${RESOURCE_NAME}'; safe to delete."
 
       - name: Delete Radius resource
-        uses: radius-project/radius/.github/extension/actions/delete-resource@main
+        uses: radius-project/ai-extensions/.github/extension/actions/delete-resource@b3968995401ac8e903af682704b844762401f214
         with:
           resource-type: ${{ inputs.resource_type }}
           name: ${{ inputs.name }}
 
       - name: Teardown
         if: always()
-        uses: radius-project/radius/.github/extension/actions/teardown@main
+        uses: radius-project/ai-extensions/.github/extension/actions/teardown@b3968995401ac8e903af682704b844762401f214
+        with:
+          state-restored: ${{ steps.restore-state.outputs.state-restored }}
