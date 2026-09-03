@@ -36,10 +36,6 @@ permissions:
   id-token: write
   contents: write
   packages: write
-  # Deleting an application also deletes the deploy-status artifact describing
-  # its last deployment, so the canvas Deployed graph does not keep rendering a
-  # deployment that no longer exists.
-  actions: write
 
 concurrency:
   group: radius-routes-gateway-${{ github.repository }}
@@ -110,7 +106,7 @@ jobs:
             --file "$RADIUS_TARGET_KUBECONFIG"
 
       - name: Set up control plane
-        uses: radius-project/ai-extensions/.github/extension/actions/setup-control-plane@20c0a3b93adc3003b118b1c35eda3f7737919471
+        uses: radius-project/ai-extensions/.github/extension/actions/setup-control-plane@994a2b7992d219ec1c9f068c68a3111e16092c82
 
       - name: Project cloud OIDC tokens into Radius pods
         run: |
@@ -168,7 +164,7 @@ jobs:
 
       - name: Restore Radius state
         id: restore-state
-        uses: radius-project/ai-extensions/.github/extension/actions/restore-state@20c0a3b93adc3003b118b1c35eda3f7737919471
+        uses: radius-project/ai-extensions/.github/extension/actions/restore-state@994a2b7992d219ec1c9f068c68a3111e16092c82
         with:
           namespace: ${{ vars.KUBERNETES_NAMESPACE || 'default' }}
 
@@ -185,24 +181,16 @@ jobs:
           echo "✅ Cloud credentials registered with Radius."
 
       - name: Delete Radius resource
-        uses: radius-project/ai-extensions/.github/extension/actions/delete-resource@20c0a3b93adc3003b118b1c35eda3f7737919471
+        uses: radius-project/ai-extensions/.github/extension/actions/delete-resource@994a2b7992d219ec1c9f068c68a3111e16092c82
         with:
           resource-type: ${{ inputs.resource_type }}
           name: ${{ inputs.name }}
           force: ${{ inputs.force }}
           azure-oidc-token-refresh: "${{ vars.AZURE_CLIENT_ID != '' }}"
 
-      - name: Discard the deleted application's deployed graph
-        if: ${{ inputs.resource_type == 'application' }}
-        uses: radius-project/ai-extensions/.github/extension/actions/discard-deploy-status@20c0a3b93adc3003b118b1c35eda3f7737919471
-        with:
-          environment: ${{ inputs.environment }}
-          application: ${{ inputs.name }}
-          github-token: ${{ github.token }}
-
       - name: Clean up unused routes Gateway infrastructure
         if: ${{ inputs.resource_type == 'application' }}
-        uses: radius-project/ai-extensions/.github/extension/actions/manage-routes-gateway@20c0a3b93adc3003b118b1c35eda3f7737919471
+        uses: radius-project/ai-extensions/.github/extension/actions/manage-routes-gateway@994a2b7992d219ec1c9f068c68a3111e16092c82
         with:
           mode: cleanup
           target-kubeconfig: ${{ env.RADIUS_TARGET_KUBECONFIG }}
@@ -215,6 +203,6 @@ jobs:
 
       - name: Teardown
         if: always()
-        uses: radius-project/ai-extensions/.github/extension/actions/teardown@20c0a3b93adc3003b118b1c35eda3f7737919471
+        uses: radius-project/ai-extensions/.github/extension/actions/teardown@994a2b7992d219ec1c9f068c68a3111e16092c82
         with:
           state-restored: ${{ steps.restore-state.outputs.state-restored }}
